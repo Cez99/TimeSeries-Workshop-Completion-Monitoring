@@ -20,7 +20,7 @@ TigerData handles this workload natively: sub-second ingest during active pumpin
 
 ## Contents
 
-- **`Hands-on-workshop-well-completion-monitoring-psql.sql`**: Complete workshop for psql command-line interface
+- **`Hands-on-workshop-completion-monitoring-psql.sql`**: Complete workshop for psql command-line interface
 
 ## Prerequisites
 
