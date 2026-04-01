@@ -244,21 +244,6 @@ psql "postgres://tsdbadmin:<password>@<host>:<port>/tsdb?sslmode=require"
 - **Design vs Actual**: Query `pump_schedule` joined to stage actuals to evaluate execution quality
 - **Automatic Refresh**: Real-time continuous aggregate refresh vs PostgreSQL materialized view limitations
 
-## How This Differs from Production Monitoring
-
-| Dimension | Production Monitoring | Completion Monitoring |
-|---|---|---|
-| Data frequency | 15-minute intervals | 5-second intervals |
-| Event duration | Years (continuous) | 90–150 min per stage |
-| Primary time unit | Days / months | Stages (2-hour events) |
-| Rate units | bbl/day, Mcf/day | bbl/min (slurry rate) |
-| Pressure channels | Wellhead pressure | Treating, BHP, hydrostatic |
-| Key additional signal | Choke size, GOR | Proppant concentration (ppg) |
-| segmentby column | well\_id | stage\_id |
-| Continuous aggregate granularity | 1 day | 1 minute |
-| Design comparison table | Not applicable | pump\_schedule (sub-stage design) |
-| Compression threshold | 7 days | 12 hours |
-
 ## Why TigerData for Completion Monitoring
 
 | Challenge | TigerData Solution |
