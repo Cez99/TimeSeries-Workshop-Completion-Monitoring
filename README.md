@@ -1,4 +1,4 @@
-# Oil & Gas Well Completion Monitoring — Hydraulic Fracturing Stage Analytics
+# Oil & Gas Well Completion Monitoring - Hydraulic Fracturing Stage Analytics
 
 ## Overview
 
