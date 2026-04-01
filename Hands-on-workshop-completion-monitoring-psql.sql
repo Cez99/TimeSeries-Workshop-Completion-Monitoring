@@ -222,83 +222,84 @@ ORDER BY job_start_date;
 -- (highest measured depth first), with 3-hour inter-stage intervals
 -- (2 hours pumping + 1 hour wireline / pressure-test operations).
 
-INSERT INTO frac_stages (
-  job_id, stage_number,
-  stage_start_time, stage_end_time,
-  perf_top_ft, perf_bottom_ft, plug_depth_ft,
-  design_fluid_bbl, design_proppant_lbs,
-  actual_fluid_bbl, actual_proppant_lbs,
-  fluid_efficiency_pct, proppant_efficiency_pct,
-  pump_time_minutes,
-  avg_treating_pressure_psi, max_treating_pressure_psi,
-  stage_result
-)
-SELECT
-  cj.id                                                                      AS job_id,
-  s.n                                                                        AS stage_number,
-
-  -- Stages walk forward in time: job_start + (stage - 1) × 3-hour intervals
-  cj.job_start_date::TIMESTAMPTZ + ((s.n - 1) * INTERVAL '3 hours')        AS stage_start_time,
-  cj.job_start_date::TIMESTAMPTZ + ((s.n - 1) * INTERVAL '3 hours')
-    + INTERVAL '2 hours'                                                     AS stage_end_time,
-
-  -- Perf depths: walk from toe toward heel, 200 ft cluster spacing
-  -- Bakken ~25,000 ft MD; Permian ~14,000 ft MD; Eagle Ford ~16,000 ft MD
-  CASE cj.basin
-    WHEN 'Williston Basin' THEN 25500 - (s.n - 1) * 200
-    WHEN 'Permian Basin'   THEN 14500 - (s.n - 1) * 200
-    ELSE                        16000 - (s.n - 1) * 200
-  END                                                                        AS perf_top_ft,
-
-  CASE cj.basin
-    WHEN 'Williston Basin' THEN 25500 - (s.n - 1) * 200 + 185
-    WHEN 'Permian Basin'   THEN 14500 - (s.n - 1) * 200 + 185
-    ELSE                        16000 - (s.n - 1) * 200 + 185
-  END                                                                        AS perf_bottom_ft,
-
-  CASE cj.basin
-    WHEN 'Williston Basin' THEN 25500 - (s.n - 1) * 200 + 200
-    WHEN 'Permian Basin'   THEN 14500 - (s.n - 1) * 200 + 200
-    ELSE                        16000 - (s.n - 1) * 200 + 200
-  END                                                                        AS plug_depth_ft,
-
-  -- Design fluid: 380-550 bbl per stage (varies by basin and stage)
-  ROUND((420 + (cj.id * 17 + s.n * 7) % 130)::NUMERIC, 0)                 AS design_fluid_bbl,
-
-  -- Design proppant: 180,000-300,000 lbs per stage
-  ROUND((200000 + (cj.id * 13 + s.n * 11) % 100000)::NUMERIC, 0)          AS design_proppant_lbs,
-
-  -- Actuals (95–110% of design, deterministic for reproducibility)
-  ROUND(((420 + (cj.id * 17 + s.n * 7) % 130) * (1.0 + ((s.n * 3 + cj.id) % 15 - 5) / 100.0))::NUMERIC, 0)
-                                                                             AS actual_fluid_bbl,
-  ROUND(((200000 + (cj.id * 13 + s.n * 11) % 100000) * (1.0 + ((s.n * 2 + cj.id) % 12 - 4) / 100.0))::NUMERIC, 0)
-                                                                             AS actual_proppant_lbs,
-
-  -- Efficiency percentages
-  ROUND((96.0 + (s.n * 3 + cj.id) % 14)::NUMERIC, 1)                      AS fluid_efficiency_pct,
-  ROUND((93.0 + (s.n * 2 + cj.id) % 12)::NUMERIC, 1)                      AS proppant_efficiency_pct,
-
-  -- Pump time: 110–130 minutes
-  110 + (s.n * 3 + cj.id * 7) % 20                                         AS pump_time_minutes,
-
-  -- Average and max treating pressure (basin-calibrated)
-  CASE cj.basin
-    WHEN 'Williston Basin' THEN 7800 + (cj.id * 200 + s.n * 50) % 600
-    WHEN 'Permian Basin'   THEN 7200 + (cj.id * 150 + s.n * 40) % 600
-    ELSE                        6400 + (cj.id * 100 + s.n * 30) % 500
-  END                                                                        AS avg_treating_pressure_psi,
-
-  CASE cj.basin
-    WHEN 'Williston Basin' THEN 8400 + (cj.id * 180 + s.n * 60) % 500
-    WHEN 'Permian Basin'   THEN 7800 + (cj.id * 150 + s.n * 50) % 500
-    ELSE                        7000 + (cj.id * 120 + s.n * 40) % 400
-  END                                                                        AS max_treating_pressure_psi,
-
-  -- Stage result: occasional screenout (~1 in 15 stages)
-  CASE WHEN (s.n * cj.id) % 15 = 0 THEN 'Screenout' ELSE 'Completed' END  AS stage_result
-
-FROM completion_jobs cj,
-     generate_series(1, cj.total_stages) AS s(n);
+INSERT INTO frac_stages (                                                                                                            
+    job_id, stage_number,                                                                                                            
+    stage_start_time, stage_end_time,                                                                                                  
+    perf_top_ft, perf_bottom_ft, plug_depth_ft,
+    design_fluid_bbl, design_proppant_lbs,                                                                                             
+    actual_fluid_bbl, actual_proppant_lbs,                                                                                             
+    fluid_efficiency_pct, proppant_efficiency_pct,                                                                                     
+    pump_time_minutes,                                                                                                                 
+    avg_treating_pressure_psi, max_treating_pressure_psi,                                                                            
+    stage_result                                                                                                                       
+  )                                                                                                                                  
+  SELECT                                                                                                                               
+    cj.id                                                                      AS job_id,                                            
+    s.n                                                                        AS stage_number,
+                                                                                                                                       
+    -- Anchor to NOW(): walk backward so the last stage of each job ends at NOW() - 1 minute.
+    -- last stage start = NOW() - 121 min  →  last reading ≈ NOW() - 121 min + 120 min = NOW() - 1 min                                 
+    -- earlier stages walk back by 3-hour inter-stage intervals from there.                                                            
+    NOW() - INTERVAL '121 minutes' - ((cj.total_stages - s.n) * INTERVAL '3 hours') AS stage_start_time,                               
+    NOW() - INTERVAL '121 minutes' - ((cj.total_stages - s.n) * INTERVAL '3 hours')                                                    
+      + INTERVAL '2 hours'                                                            AS stage_end_time,                               
+                                                                                                                                     
+    -- Perf depths: walk from toe toward heel, 200 ft cluster spacing                                                                  
+    CASE cj.basin                                                                                                                    
+      WHEN 'Williston Basin' THEN 25500 - (s.n - 1) * 200                                                                              
+      WHEN 'Permian Basin'   THEN 14500 - (s.n - 1) * 200                                                                              
+      ELSE                        16000 - (s.n - 1) * 200                                                                              
+    END                                                                        AS perf_top_ft,                                         
+                                                                                                                                       
+    CASE cj.basin                                                                                                                      
+      WHEN 'Williston Basin' THEN 25500 - (s.n - 1) * 200 + 185                                                                        
+      WHEN 'Permian Basin'   THEN 14500 - (s.n - 1) * 200 + 185                                                                        
+      ELSE                        16000 - (s.n - 1) * 200 + 185
+    END                                                                        AS perf_bottom_ft,                                      
+                                                                                                                                     
+    CASE cj.basin                                                                                                                      
+      WHEN 'Williston Basin' THEN 25500 - (s.n - 1) * 200 + 200                                                                      
+      WHEN 'Permian Basin'   THEN 14500 - (s.n - 1) * 200 + 200                                                                        
+      ELSE                        16000 - (s.n - 1) * 200 + 200
+    END                                                                        AS plug_depth_ft,                                       
+                                                                                                                                     
+    -- Design fluid: 380-550 bbl per stage                                                                                             
+    ROUND((420 + (cj.id * 17 + s.n * 7) % 130)::NUMERIC, 0)                 AS design_fluid_bbl,                                     
+                                                                                                                                       
+    -- Design proppant: 180,000-300,000 lbs per stage                                                                                  
+    ROUND((200000 + (cj.id * 13 + s.n * 11) % 100000)::NUMERIC, 0)          AS design_proppant_lbs,                                    
+                                                                                                                                       
+    -- Actuals (95–110% of design)                                                                                                     
+    ROUND(((420 + (cj.id * 17 + s.n * 7) % 130) * (1.0 + ((s.n * 3 + cj.id) % 15 - 5) / 100.0))::NUMERIC, 0)                           
+                                                                               AS actual_fluid_bbl,                                    
+    ROUND(((200000 + (cj.id * 13 + s.n * 11) % 100000) * (1.0 + ((s.n * 2 + cj.id) % 12 - 4) / 100.0))::NUMERIC, 0)                    
+                                                                               AS actual_proppant_lbs,                                 
+                                                                                                                                       
+    -- Efficiency percentages                                                                                                          
+    ROUND((96.0 + (s.n * 3 + cj.id) % 14)::NUMERIC, 1)                      AS fluid_efficiency_pct,                                   
+    ROUND((93.0 + (s.n * 2 + cj.id) % 12)::NUMERIC, 1)                      AS proppant_efficiency_pct,                                
+                                                                                                                                       
+    -- Pump time: 110–130 minutes                                                                                                      
+    110 + (s.n * 3 + cj.id * 7) % 20                                         AS pump_time_minutes,                                     
+                                                                                                                                       
+    -- Average and max treating pressure (basin-calibrated)                                                                          
+    CASE cj.basin                                                                                                                      
+      WHEN 'Williston Basin' THEN 7800 + (cj.id * 200 + s.n * 50) % 600                                                              
+      WHEN 'Permian Basin'   THEN 7200 + (cj.id * 150 + s.n * 40) % 600                                                                
+      ELSE                        6400 + (cj.id * 100 + s.n * 30) % 500                                                                
+    END                                                                        AS avg_treating_pressure_psi,                           
+                                                                                                                                       
+    CASE cj.basin                                                                                                                    
+      WHEN 'Williston Basin' THEN 8400 + (cj.id * 180 + s.n * 60) % 500                                                                
+      WHEN 'Permian Basin'   THEN 7800 + (cj.id * 150 + s.n * 50) % 500                                                                
+      ELSE                        7000 + (cj.id * 120 + s.n * 40) % 400                                                                
+    END                                                                        AS max_treating_pressure_psi,                           
+                                                                                                                                       
+    -- Stage result: occasional screenout (~1 in 15 stages)                                                                            
+    CASE WHEN (s.n * cj.id) % 15 = 0 THEN 'Screenout' ELSE 'Completed' END  AS stage_result                                            
+                                                                                                                                       
+  FROM completion_jobs cj,                                                                                                           
+       generate_series(1, cj.total_stages) AS s(n); 
 
 -- Verify stage count and depth ranges:
 SELECT
@@ -802,8 +803,7 @@ SELECT
   ROUND(avg_conc_ppg::NUMERIC, 2) AS avg_conc_ppg,
   readings_count
 FROM stage_minute_summary
-WHERE stage_id = 1
-  AND minute >= NOW() - INTERVAL '2 minutes'
+WHERE minute >= NOW() - INTERVAL '5 minutes'
 ORDER BY minute DESC;
 
 -- The new reading appears immediately in the result.
