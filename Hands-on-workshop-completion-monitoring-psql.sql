@@ -1,11 +1,10 @@
 -- ============================================================================
 -- # Oil & Gas Well Completion Monitoring — Hydraulic Fracturing Stage Analytics
 -- ============================================================================
--- Hydraulic fracturing (completions) generates a fundamentally different data
--- workload from long-term production monitoring. A single frac stage lasts
--- 90–150 minutes and produces thousands of high-frequency sensor readings —
--- treating pressure, slurry pump rate, proppant concentration, and downhole
--- pressure — at 5-second intervals from surface treating iron and downhole gauges.
+-- Hydraulic fracturing (completions) generates thousands of high-frequency 
+-- sensor readings — treating pressure, slurry pump rate, proppant concentration, 
+-- and downhole pressure — at 5-second intervals from surface treating iron and 
+-- downhole gauges.
 --
 -- A completions engineer monitors these signals in real time against the
 -- engineered pump schedule (the "design"), watching for screenouts, pressure
