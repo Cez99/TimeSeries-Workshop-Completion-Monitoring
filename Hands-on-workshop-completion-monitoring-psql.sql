@@ -389,102 +389,83 @@ SELECT COUNT(DISTINCT stage_id) AS stages_with_schedule FROM pump_schedule;
 --   - Proppant concentration steps up through the pump schedule
 --   - Everything ramps down during the final flush
 
-INSERT INTO frac_telemetry (
-  time, stage_id,
-  treating_pressure_psi,
-  slurry_rate_bpm,
-  proppant_concentration_ppg,
-  bottomhole_pressure_psi,
-  hydrostatic_pressure_psi,
-  slurry_density_ppg
-)
-SELECT
-  fs.stage_start_time + (g.n * INTERVAL '5 seconds')    AS time,
-  fs.id                                                  AS stage_id,
-
-  -- Treating pressure: base + rate contribution + proppant contribution + noise
-  -- Ramps up with rate in first 10 min, falls at end of stage
-  GREATEST(500,
-    CASE cj.basin
-      WHEN 'Williston Basin' THEN 7600 + (fs.id % 5) * 120
-      WHEN 'Permian Basin'   THEN 7000 + (fs.id % 5) * 100
-      ELSE                        6200 + (fs.id % 5) * 80
-    END
-    -- Rate factor: pressure rises as rate ramps up, drops during flush
-    + 400 * LEAST(1.0, g.n / 120.0)
-             * GREATEST(0.0, LEAST(1.0, (fs.pump_time_minutes * 12 - g.n) / 120.0))
-    -- Proppant friction contribution
-    + 200 * CASE
-        WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.25 THEN 0.0
-        WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.40 THEN 0.2
-        WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.55 THEN 0.4
-        WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.65 THEN 0.6
-        WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.75 THEN 0.8
-        WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.88 THEN 1.0
-        ELSE 0.0
+  INSERT INTO frac_telemetry (
+    time, stage_id,
+    treating_pressure_psi,
+    slurry_rate_bpm,
+    proppant_concentration_ppg,
+    bottomhole_pressure_psi,
+    hydrostatic_pressure_psi,
+    slurry_density_ppg
+  )
+  SELECT
+    fs.stage_start_time + (g.n * INTERVAL '5 seconds')    AS time,
+    fs.id                                                  AS stage_id,
+    GREATEST(500,
+      CASE cj.basin
+        WHEN 'Williston Basin' THEN 7600 + (fs.id % 5) * 120
+        WHEN 'Permian Basin'   THEN 7000 + (fs.id % 5) * 100
+        ELSE                        6200 + (fs.id % 5) * 80
       END
-    + (random() * 300 - 150)                             -- ±150 psi noise
-  )                                                      AS treating_pressure_psi,
-
-  -- Slurry rate (bbl/min): sigmoid ramp up, flat hold, ramp down at end
-  GREATEST(0.0,
+      + 400 * LEAST(1.0, g.n / 120.0)
+               * GREATEST(0.0, LEAST(1.0, (fs.pump_time_minutes * 12 - g.n) / 120.0))
+      + 200 * CASE
+          WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.25 THEN 0.0
+          WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.40 THEN 0.2
+          WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.55 THEN 0.4
+          WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.65 THEN 0.6
+          WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.75 THEN 0.8
+          WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.88 THEN 1.0
+          ELSE 0.0
+        END
+      + (random() * 300 - 150)
+    )                                                      AS treating_pressure_psi,
+    GREATEST(0.0,
+      CASE cj.basin
+        WHEN 'Williston Basin' THEN 78.0 + (fs.id % 4) * 2.0
+        WHEN 'Permian Basin'   THEN 68.0 + (fs.id % 4) * 2.0
+        ELSE                        57.0 + (fs.id % 4) * 1.5
+      END
+      * LEAST(1.0, g.n / 120.0)
+      * GREATEST(0.0, LEAST(1.0, (fs.pump_time_minutes * 12 - g.n) / 120.0))
+      + (random() * 1.5 - 0.75)
+    )                                                      AS slurry_rate_bpm,
+    CASE
+      WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.25 THEN 0.00 + random() * 0.02
+      WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.40 THEN 0.25 + random() * 0.04
+      WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.55 THEN 0.50 + random() * 0.04
+      WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.65 THEN 1.00 + random() * 0.06
+      WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.75 THEN 1.50 + random() * 0.08
+      WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.88 THEN 2.00 + random() * 0.10
+      ELSE                                                      0.00 + random() * 0.02
+    END                                                    AS proppant_concentration_ppg,
+    GREATEST(0,
+      CASE cj.basin
+        WHEN 'Williston Basin' THEN 10200 + (fs.id % 5) * 150
+        WHEN 'Permian Basin'   THEN  9000 + (fs.id % 5) * 100
+        ELSE                         8300 + (fs.id % 5) * 80
+      END
+      + (random() * 400 - 200)
+    )                                                      AS bottomhole_pressure_psi,
     CASE cj.basin
-      WHEN 'Williston Basin' THEN 78.0 + (fs.id % 4) * 2.0
-      WHEN 'Permian Basin'   THEN 68.0 + (fs.id % 4) * 2.0
-      ELSE                        57.0 + (fs.id % 4) * 1.5
-    END
-    -- Rate ramp-up: full rate reached in 10 min (120 × 5-sec readings)
-    * LEAST(1.0, g.n / 120.0)
-    -- Rate ramp-down: drops to 0 in last 10 min
-    * GREATEST(0.0, LEAST(1.0, (fs.pump_time_minutes * 12 - g.n) / 120.0))
-    + (random() * 1.5 - 0.75)                           -- ±0.75 bpm noise
-  )                                                      AS slurry_rate_bpm,
-
-  -- Proppant concentration (ppg): pad → step ramp → flush
-  -- Steps increase every ~15 min; pad is first 25% of stage; flush is last 12%
-  CASE
-    WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.25 THEN 0.00 + random() * 0.02
-    WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.40 THEN 0.25 + random() * 0.04
-    WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.55 THEN 0.50 + random() * 0.04
-    WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.65 THEN 1.00 + random() * 0.06
-    WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.75 THEN 1.50 + random() * 0.08
-    WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.88 THEN 2.00 + random() * 0.10
-    ELSE                                                      0.00 + random() * 0.02
-  END                                                    AS proppant_concentration_ppg,
-
-  -- Bottomhole pressure = hydrostatic + net fracture pressure
-  GREATEST(0,
-    CASE cj.basin
-      WHEN 'Williston Basin' THEN 10200 + (fs.id % 5) * 150
-      WHEN 'Permian Basin'   THEN  9000 + (fs.id % 5) * 100
-      ELSE                         8300 + (fs.id % 5) * 80
-    END
-    + (random() * 400 - 200)
-  )                                                      AS bottomhole_pressure_psi,
-
-  -- Hydrostatic pressure: stable during pumping, set by fluid column height
-  CASE cj.basin
-    WHEN 'Williston Basin' THEN 9600 + random() * 60
-    WHEN 'Permian Basin'   THEN 8400 + random() * 50
-    ELSE                        7700 + random() * 40
-  END                                                    AS hydrostatic_pressure_psi,
-
-  -- Slurry density (lb/gal): 8.33 (base freshwater) + proppant contribution
-  8.33
-  + CASE
-      WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.25 THEN 0.00
-      WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.40 THEN 0.18
-      WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.55 THEN 0.35
-      WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.65 THEN 0.68
-      WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.75 THEN 1.00
-      WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.88 THEN 1.32
-      ELSE                                                      0.00
-    END
-  + random() * 0.08                                      AS slurry_density_ppg
-
-FROM frac_stages fs
-JOIN completion_jobs cj ON fs.job_id = cj.id
-CROSS JOIN generate_series(0, (fs.pump_time_minutes * 12 - 1)) AS g(n);
+      WHEN 'Williston Basin' THEN 9600 + random() * 60
+      WHEN 'Permian Basin'   THEN 8400 + random() * 50
+      ELSE                        7700 + random() * 40
+    END                                                    AS hydrostatic_pressure_psi,
+    8.33
+    + CASE
+        WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.25 THEN 0.00
+        WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.40 THEN 0.18
+        WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.55 THEN 0.35
+        WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.65 THEN 0.68
+        WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.75 THEN 1.00
+        WHEN g.n::FLOAT / (fs.pump_time_minutes * 12) < 0.88 THEN 1.32
+        ELSE                                                      0.00
+      END
+    + random() * 0.08                                      AS slurry_density_ppg
+  FROM frac_stages fs
+  JOIN completion_jobs cj ON fs.job_id = cj.id
+  CROSS JOIN generate_series(0, (fs.pump_time_minutes::INTEGER * 12 - 1)) AS g(n);
 -- 12 readings/min = 60 sec/min ÷ 5 sec/reading
 
 
@@ -592,6 +573,10 @@ WHERE ft.stage_id = 1            -- change to any stage_id of interest
 GROUP BY minute
 ORDER BY minute;
 
+-- Remember the time it took to run the stage replay query (Query 2) above.
+-- After enabling compression and creating the continuous aggregate,
+-- run the same query on the c-agg and compare the execution time.
+
 
 -- ----------------------------------------------------------------------------
 -- Query 3: Design vs Actual — Stage Execution Adherence
@@ -672,11 +657,6 @@ GROUP BY cj.job_identifier, fs.stage_number, ps.substage_number,
 ORDER BY ps.substage_number;
 
 
--- Remember the time it took to run the stage replay query (Query 2) above.
--- After enabling compression and creating the continuous aggregate,
--- run the same query on the c-agg and compare the execution time.
-
-
 -- ============================================================================
 -- ## Enable Columnarstore (Compression)
 -- ============================================================================
@@ -686,6 +666,9 @@ ORDER BY ps.substage_number;
 --
 -- Keep the most recent 12 hours uncompressed (live stage buffer);
 -- compress everything older as stages complete throughout the day.
+
+-- Columnstore is already enabled via tsdb.enable_columnstore = true at 
+-- table creation — no separate policy call needed. 
 
 CALL add_columnstore_policy('frac_telemetry', after => INTERVAL '12 hours');
 
@@ -862,4 +845,3 @@ WHERE hypertable_name = 'frac_telemetry';
 -- The stage_minute_summary continuous aggregate is retained indefinitely.
 
 SELECT add_retention_policy('frac_telemetry', INTERVAL '2 years');
-
